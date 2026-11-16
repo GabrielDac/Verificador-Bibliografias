@@ -1,0 +1,12 @@
+# Opcional: permite crear el servicio en Render como «Blueprint».
+# Si creás el servicio a mano, usá estos mismos comandos.
+services:
+  - type: web
+    name: verificador-bibliografias
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 1 --threads 8 --timeout 120
+    envVars:
+      - key: CONTACT_EMAIL
+        sync: false

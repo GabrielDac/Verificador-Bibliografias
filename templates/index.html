@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="es" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verificador de Bibliografías — ¿Existen de verdad estas referencias?</title>
+<meta name="description" content="Arrastrá un PDF o pegá una lista de referencias. Se comprueba primero el enlace citado y después se busca cada trabajo por título y autor en Crossref, OpenAlex, Semantic Scholar, PubMed, DOAJ y Open Library.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230D5E66'/%3E%3Cpath d='M26 52l16 16 32-36' fill='none' stroke='white' stroke-width='11' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<header class="cabecera">
+  <div class="marca">
+    <h1>Verificador de Bibliografías</h1>
+    <p class="lema">Comprobá si las referencias de un trabajo existen de verdad.</p>
+  </div>
+  <div class="controles-cabecera">
+    <button id="btn-tema" class="boton-sutil" type="button" aria-label="Cambiar entre tema claro y oscuro" title="Tema claro / oscuro">◐</button>
+  </div>
+</header>
+
+<main class="principal">
+
+  <!-- ───────── 1 · Cargar ───────── -->
+  <section class="panel panel-ancho" id="panel-cargar" aria-labelledby="t-cargar">
+    <h2 id="t-cargar">1 · Cargar la bibliografía</h2>
+
+    <div class="carga">
+      <div>
+        <label id="zona" class="zona" for="archivo" tabindex="0">
+          <span class="zona-icono" aria-hidden="true">⬇</span>
+          <strong>Arrastrá y soltá un archivo acá</strong>
+          <span>o hacé clic para elegirlo</span>
+          <span class="zona-tipos">PDF · BibTeX (.bib) · RIS (.ris) · texto (.txt)</span>
+          <input id="archivo" type="file" accept=".pdf,.bib,.bibtex,.ris,.txt,application/pdf" hidden>
+        </label>
+        <p class="ayuda">En un PDF se busca sola la sección «Referencias» o «Bibliografía». El archivo se analiza y no se guarda.</p>
+      </div>
+
+      <div>
+        <label for="texto" class="etiqueta">O pegá las referencias</label>
+        <textarea id="texto" rows="8" spellcheck="false" aria-describedby="ayuda-texto"
+          placeholder="García, M. (2021). Título del artículo. Nombre de la Revista, 12(3), 45–67. https://doi.org/…"></textarea>
+        <p class="ayuda" id="ayuda-texto">Sirve cualquier norma (APA, ISO 690, Vancouver, Chicago). Una referencia por párrafo o por línea.</p>
+        <div class="acciones">
+          <button id="btn-detectar" class="boton-primario" type="button">Detectar referencias</button>
+          <button id="btn-ejemplo" class="boton-sutil" type="button">Cargar un ejemplo</button>
+        </div>
+      </div>
+    </div>
+    <p id="estado-carga" class="estado" role="status" aria-live="polite"></p>
+  </section>
+
+  <!-- ───────── 2 · Revisar ───────── -->
+  <section class="panel panel-ancho" id="panel-revisar" aria-labelledby="t-revisar" hidden>
+    <div class="encabezado-biblio">
+      <h2 id="t-revisar">2 · Revisar la lista</h2>
+      <p class="ayuda" id="cuenta-revisar"></p>
+    </div>
+    <p class="ayuda">Cada casilla debe contener una sola referencia completa. Podés corregir el texto, unir una referencia que quedó partida con la anterior o quitar lo que no corresponda.</p>
+    <div id="aviso-extraccion" class="avisos" hidden></div>
+    <ol id="lista-revisar" class="lista-revisar"></ol>
+    <div class="acciones">
+      <button id="btn-verificar" class="boton-primario" type="button">Verificar</button>
+      <button id="btn-agregar" class="boton-sutil" type="button">Agregar una referencia</button>
+      <button id="btn-vaciar" class="boton-peligro" type="button">Vaciar la lista</button>
+    </div>
+  </section>
+
+  <!-- ───────── 3 · Resultados ───────── -->
+  <section class="panel panel-ancho" id="panel-resultados" aria-labelledby="t-resultados" hidden>
+    <div class="encabezado-biblio">
+      <h2 id="t-resultados">3 · Resultados</h2>
+      <p class="ayuda" id="progreso-texto" role="status" aria-live="polite"></p>
+    </div>
+    <div class="barra" aria-hidden="true"><div id="barra-avance"></div></div>
+
+    <div id="filtros" class="chips" role="group" aria-label="Filtrar resultados por estado"></div>
+
+    <ol id="lista-resultados" class="lista-resultados"></ol>
+
+    <div class="acciones">
+      <label class="exportar">Exportar el informe
+        <select id="fmt-exportar">
+          <option value="html">HTML — para imprimir o guardar como PDF</option>
+          <option value="csv">CSV — planilla de cálculo</option>
+          <option value="txt">Texto plano</option>
+        </select>
+      </label>
+      <button id="btn-exportar" class="boton-secundario" type="button">Descargar</button>
+      <button id="btn-detener" class="boton-sutil" type="button" hidden>Detener</button>
+    </div>
+
+    <details class="avanzada">
+      <summary>Cómo leer los resultados</summary>
+      <ul class="leyenda">
+        <li><span class="sello sello-verificada">Verificada</span> El enlace citado lleva al trabajo, o el trabajo se encontró por título y autor en al menos una base.</li>
+        <li><span class="sello sello-observaciones">Con observaciones</span> El trabajo aparece, pero algún dato citado no coincide (autores, año, DOI), o el enlace funciona y no se pudo confirmar su contenido.</li>
+        <li><span class="sello sello-no_encontrada">No encontrada</span> No aparece en ninguna base. Puede ser una referencia inventada, pero también un libro, una tesis o un documento que las bases no cubren.</li>
+        <li><span class="sello sello-retractada">Retractada</span> El trabajo existe y la revista lo retiró.</li>
+        <li><span class="sello sello-sin_comprobar">Sin comprobar</span> Las bases no respondieron. Se puede reintentar.</li>
+      </ul>
+      <p class="ayuda">El resultado es una ayuda para la revisión y no un dictamen definitivo. Ante la duda, consultá la fuente original.</p>
+    </details>
+  </section>
+
+</main>
+
+<footer class="pie">
+  <p><b>Verificador de Bibliografías</b> · © 2026 <b>Gabriel Da Costa Porto Luzardo</b> · <a href="mailto:gabomvd@gmail.com">gabomvd@gmail.com</a> · Software libre bajo licencia
+    <a href="https://www.gnu.org/licenses/gpl-3.0.es.html" target="_blank" rel="noopener">GNU GPL-3.0</a> · Powered by Anthrop\c</p>
+  <details style="margin:12px auto;max-width:900px;text-align:left"><summary style="cursor:pointer;text-align:center">ℹ️ Acerca de esta herramienta</summary><p style="margin:10px 0 4px;line-height:1.6">Verificador de Bibliografías comprueba si las referencias de un trabajo corresponden a publicaciones reales. Acepta un PDF, un archivo BibTeX o RIS, o una lista pegada, y separa las referencias mediante reglas, sin inteligencia artificial. Para cada una comprueba primero el enlace citado (DOI o dirección web) y, si eso no alcanza, busca el trabajo por título y autor en Crossref, OpenAlex, Semantic Scholar, PubMed, DOAJ y Open Library, con DataCite e Internet Archive como apoyo. Los archivos se analizan en el momento y no se guardan. Backend en Python (Flask). Software libre bajo licencia GNU GPL-3.0.</p>
+  <p style="margin:6px 0"><button id="btn-fuentes" class="boton-sutil" type="button">Comprobar el estado de las bases</button> <span id="estado-fuentes" role="status" aria-live="polite"></span></p></details>
+  <p>Otras herramientas: <a href="https://biblioteca-virtual-itfj.onrender.com" target="_blank" rel="noopener">Biblioteca Virtual</a> · <a href="https://clasificacion-total.onrender.com" target="_blank" rel="noopener">Clasificación Documental</a> · <a href="https://referencias-bibliograficas.onrender.com" target="_blank" rel="noopener">Referencias Bibliográficas</a> <span style="opacity:.65">(los servidores de Render pueden demorar unos 30 segundos en la primera carga)</span></p>
+</footer>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
