@@ -53,3 +53,18 @@ PY  - 1944///
 PB  - Sur
 ER  - 
 """
+
+GABRIEL_1 = """Carvidon, E. & Pivel, D. (2021). Proyecto de conservación, digitalización y difusión de la Colección Camareta de la Biblioteca del Poder Legislativo. Presentado en las III Jornadas Nacionales: Conservación Preventiva y Gestión de Riesgos, Facultad de Información y Comunicación, Universidad de la República, Montevideo. https://jornadas-preservacion.fic.edu.uy/index.php/jornadas2021/article/view/27
+Carvidón, E., Paz Torres, M. y Rodríguez-Fleitas, M. (2021). Red de Bibliotecas Parlamentarias de América Latina y el Caribe [en línea]. Informatio, 26(2). https://informatio.fic.edu.uy/index.php/informatio/article/view/366/391
+Creative Commons Uruguay (20 octubre de 2017). Autores.uy: presentación de la digitalización del patrimonio literario en bibliotecas. . https://www.creativecommons.uy/2017/10/02/1710-autores-uy-presentacion-de-la-di-
+gitalizacion-del-patrimonio-literario-en-bibliotecas/
+"""
+GABRIEL_2 = """Claudio Aspesi (2019). SPARC Landscape Analysis: The Changing Academic Publishing Industry – Implications for Academic Institutions
+
+Aspesi, C. (2026). SPARC financial landscape analysis 2026: Scholarly publishing & research analytics companies
+
+Butler, L.-A. (2023). Review for "The Oligopoly’s Shift to Open Access. How the Big Five Academic Publishers Profit from Article Processing Charges"
+
+M. Hagve (2020). The money behind academic publishing.Tidsskrift for Den Norske Laegeforening
+
+Richard Wellen (2004). Taking on Commercial Scholarly Journals: Reflections on the ‘Open Access’ Movement"""

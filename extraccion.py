@@ -1,4 +1,4 @@
-# Verificador de Bibliografías — © 2026 Gabriel Da Costa Porto Luzardo — GPL-3.0
+# Verificador Bibliográfico — © 2026 Gabriel Da Costa Porto Luzardo — GPL-3.0
 """Extracción de referencias por reglas (sin IA).
 
 Entrada: PDF, texto pegado, BibTeX o RIS.
@@ -6,7 +6,6 @@ Salida: lista de referencias, cada una con su texto original y los datos
 que se pudieron reconocer (DOI, URL, año, primer autor, título probable).
 """
 
-import io
 import re
 import unicodedata
 
@@ -16,7 +15,8 @@ MINUS = "a-záéíóúñüàèìòùâêîôûäëïöçãõøåšžčł"
 RE_DOI = re.compile(r"\b(10\.\d{4,9}/[^\s\"<>]+)", re.I)
 RE_URL = re.compile(r"(https?://[^\s<>\"]+)", re.I)
 RE_ANIO = re.compile(r"(?<![\d/.\-])(1[5-9]\d{2}|20\d{2})[a-z]?(?![\d/\-])")
-RE_ANIO_PAR = re.compile(r"\(\s*(1[5-9]\d{2}|20\d{2})[a-z]?\b[^)]{0,25}\)")
+FECHA_PREVIA = r"(?:\d{1,2}\s+(?:de\s+)?[A-Za-zÁÉÍÓÚáéíóú]{3,10}\.?,?\s+(?:de\s+|del\s+)?|[A-Za-zÁÉÍÓÚáéíóú]{3,10}\.?\s+\d{1,2},?\s+)?"
+RE_ANIO_PAR = re.compile(r"\(\s*" + FECHA_PREVIA + r"(1[5-9]\d{2}|20\d{2})[a-z]?\b[^)]{0,25}\)")
 RE_SIN_FECHA = re.compile(r"\(\s*(s\.\s?f\.|n\.\s?d\.|en prensa|in press)\s*\)", re.I)
 
 ENCABEZADOS = (
@@ -42,7 +42,7 @@ RE_INICIO = re.compile(
     # Vancouver sin número: Apellido AB, ...
     rf"|[{MAYUS}][\w'’\-]+(?:[ \-][{MAYUS}][\w'’\-]+)?\s+[{MAYUS}]{{1,3}}[,.]"
     # Autor institucional seguido del año entre paréntesis
-    rf"|[{MAYUS}][^()]{{2,90}}?\.?\s*\((?:1[5-9]\d{{2}}|20\d{{2}}|s\.\s?f\.|n\.\s?d\.)"
+    rf"|[{MAYUS}][^()]{{2,90}}?\.?\s*\((?:" + FECHA_PREVIA + r"(?:1[5-9]\d{2}|20\d{2})|s\.\s?f\.|n\.\s?d\.)"
     # Raya de autor repetido
     r"|[—–_\-]{3,}"
     r")")
@@ -84,21 +84,49 @@ def _limpiar_url(u):
 #  PDF → TEXTO
 # ─────────────────────────────────────────────
 
-def texto_de_pdf(datos):
-    """Texto del PDF. Lanza ValueError con un mensaje legible si no se puede."""
-    from pdfminer.high_level import extract_text
-    from pdfminer.pdfparser import PDFSyntaxError
-    from pdfminer.pdfdocument import PDFPasswordIncorrect
+def _texto_pagina(pagina):
+    tp = pagina.get_textpage()
     try:
-        texto = extract_text(io.BytesIO(datos)) or ""
-    except PDFPasswordIncorrect:
-        raise ValueError("El PDF está protegido con contraseña.")
-    except (PDFSyntaxError, Exception):
+        t = tp.get_text_range() or ""
+    finally:
+        tp.close()
+    # pdfium marca el guion de fin de línea con caracteres de control
+    return t.replace("\ufffe", "-").replace("\x02", "-").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def texto_de_pdf(datos):
+    """Texto del PDF leído desde la última página hacia atrás, hasta encontrar
+    el encabezado de la bibliografía. Devuelve (texto, paginas_leidas, total).
+    Lanza ValueError con un mensaje legible si no se puede."""
+    import pypdfium2 as pdfium
+    try:
+        doc = pdfium.PdfDocument(datos)
+    except pdfium.PdfiumError as e:
+        if "password" in str(e).lower():
+            raise ValueError("El PDF está protegido con contraseña.")
         raise ValueError("No se pudo leer el archivo como PDF.")
+    try:
+        total = len(doc)
+        paginas = []
+        for i in range(total - 1, -1, -1):
+            pag = doc[i]
+            try:
+                paginas.insert(0, _texto_pagina(pag))
+            finally:
+                pag.close()
+            texto = "\n\x0c\n".join(paginas)
+            # Un encabezado en esta página con contenido suficiente debajo
+            if any(RE_ENCABEZADO.match(l) for l in paginas[0].split("\n")):
+                _, hallada = seccion_referencias(texto)
+                if hallada:
+                    return texto, len(paginas), total
+        texto = "\n\x0c\n".join(paginas)
+    finally:
+        doc.close()
     if len(texto.strip()) < 200:
         raise ValueError("El PDF no tiene texto seleccionable (parece una imagen escaneada). "
                          "Pegá las referencias como texto.")
-    return texto
+    return texto, total, total
 
 
 # ─────────────────────────────────────────────
@@ -133,8 +161,11 @@ def seccion_referencias(texto):
 #  SEPARAR REFERENCIAS
 # ─────────────────────────────────────────────
 
-def _unir(lineas):
-    """Une las líneas de una referencia reparando guiones de corte y enlaces partidos."""
+def _unir(lineas, alternativas=None):
+    """Une las líneas de una referencia reparando guiones de corte y enlaces partidos.
+    Si un enlace quedó cortado justo después de un guion, no se sabe si el guion
+    es parte de la dirección o solo del corte de línea: se conserva y se anota
+    en `alternativas` la versión sin guion, para probarla si la primera falla."""
     out = ""
     for l in lineas:
         l = l.strip()
@@ -147,6 +178,11 @@ def _unir(lineas):
         en_enlace = bool(re.search(r"(https?://|doi\.org/|^10\.\d{4,9}/)", ultimo, re.I))
         primero = l.split()[0]
         if en_enlace and out[-1] in "/-._=?&%:~" and re.match(r"^[\w\-./?=&%#~+:()]+$", primero):
+            if out[-1] == "-" and alternativas is not None:
+                cola = re.search(r"[^/\s]*-$", out).group(0)
+                cabeza = re.match(r"[^/\s]*", primero).group(0)
+                if cola[:-1] and cabeza:
+                    alternativas.append((cola + cabeza, cola[:-1] + cabeza))
             out += l                                   # enlace partido
         elif en_enlace and len(ultimo) > 55 and re.match(r"^[\w\-./?=&%#~+]{1,40}\.?$", l):
             out += l                                   # cola de enlace largo
@@ -182,6 +218,12 @@ def _completa(buf):
     return not re.search(rf"(^|[\s(,])[{MAYUS}]\.$", fin)
 
 
+def _par(lineas):
+    """(texto unido, enlaces cortados con guion)"""
+    alternativas = []
+    return _unir(lineas, alternativas), alternativas
+
+
 def _por_numeros(lineas):
     marcas = []
     esperado = None
@@ -204,7 +246,7 @@ def _por_numeros(lineas):
         fin = marcas[k + 1] if k + 1 < len(marcas) else len(lineas)
         bloque = [x for x in lineas[i:fin] if x.strip()]
         bloque[0] = RE_NUMERADA.sub("", bloque[0], count=1)
-        refs.append(_unir(bloque))
+        refs.append(_par(bloque))
     return refs
 
 
@@ -220,8 +262,8 @@ def _por_bloques(lineas):
         bloques.append(actual)
     if len(bloques) < 3:
         return None
-    textos = [_unir(b) for b in bloques]
-    buenos = sum(1 for t in textos if len(t) >= 40 and (RE_ANIO.search(t) or RE_SIN_FECHA.search(t)))
+    textos = [_par(b) for b in bloques]
+    buenos = sum(1 for t, _ in textos if len(t) >= 40 and (RE_ANIO.search(t) or RE_SIN_FECHA.search(t)))
     if buenos / len(textos) < 0.8:
         return None
     return textos
@@ -239,16 +281,17 @@ def _por_autores(lineas):
         elif buf and vacia_antes and _completa(buf) and re.match(rf"^[{MAYUS}\"“¿¡\d]", l.strip()):
             nueva = True
         if nueva:
-            refs.append(_unir(buf))
+            refs.append(_par(buf))
             buf = []
         buf.append(l)
         vacia_antes = False
     if buf:
-        refs.append(_unir(buf))
+        refs.append(_par(buf))
     return refs
 
 
 def separar_referencias(texto, de_pdf=False):
+    """Lista de (texto, alternativas_de_enlace)."""
     lineas = [l for l in texto.replace("\r", "\n").replace("\x0c", "\n").split("\n") if not _es_ruido(l)]
     if de_pdf:
         # En un PDF las líneas en blanco dependen de la maquetación (sangría
@@ -258,10 +301,10 @@ def separar_referencias(texto, de_pdf=False):
     else:
         refs = _por_numeros(lineas) or _por_bloques(lineas) or _por_autores(lineas)
     limpio = []
-    for r in refs:
+    for r, alternativas in refs:
         r = re.sub(r"^[•·▪◦\-–*]\s+", "", r).strip()
         if len(r) >= 25 and re.search(r"[A-Za-zÁ-ú]{3}", r):
-            limpio.append(r)
+            limpio.append((r, alternativas))
     return limpio[:MAX_REFERENCIAS]
 
 
@@ -283,8 +326,14 @@ def _parece_autores(seg):
     return iniciales >= 1 and iniciales * 3 >= palabras - 2
 
 
+def _espaciar(t):
+    """Agrega el espacio que falta tras un punto entre dos palabras
+    («publishing.Tidsskrift»), sin tocar enlaces ni dominios."""
+    return re.sub(rf"(?<=[{MINUS}]{{3}})\.(?=[{MAYUS}][{MINUS}])", ". ", t)
+
+
 def _titulo_probable(raw):
-    t = RE_URL.sub(" ", raw)
+    t = _espaciar(RE_URL.sub(" ", raw))
     t = re.sub(r"\b(doi:?\s*)?10\.\d{4,9}/\S+", " ", t, flags=re.I)
     t = re.sub(r"\s+", " ", t).strip()
 
@@ -328,6 +377,14 @@ def _titulo_probable(raw):
 
 def _primer_apellido(raw):
     t = RE_NUMERADA.sub("", raw).strip()
+    # Iniciales primero: «M. Hagve (2020)», «J. L. Borges»
+    m = re.match(rf"^(?:[{MAYUS}]\.\s*(?:-\s*)?){{1,3}}((?:(?:de|del|de la|van|von)\s+)?[{MAYUS}][\w'’\-]+)", t)
+    if m:
+        return m.group(1)
+    # Nombre y apellido antes del año: «Claudio Aspesi (2019)»
+    m = re.match(rf"^[{MAYUS}][{MINUS}]+\s+([{MAYUS}][{MINUS}][\w'’\-]+)\s*\(", t)
+    if m:
+        return m.group(1)
     m = re.match(rf"^((?:(?:de|del|de la|da|dos|van|von|di|le|la)\s+)?[{MAYUS}][\w'’\-]+(?:[ \-][{MAYUS}{MINUS}][\w'’\-]+){{0,2}}?)"
                  rf"(?:,|\s+[{MAYUS}]{{1,3}}\b[,.]|\s+et al|\s*\(|\s+(?:y|and|&)\s)", t)
     if m:
@@ -336,7 +393,7 @@ def _primer_apellido(raw):
     return m.group(1) if m else ""
 
 
-def analizar(raw):
+def analizar(raw, alternativas=()):
     """Datos reconocibles de una referencia en texto libre."""
     raw = re.sub(r"\s+", " ", raw or "").strip()
     # DOI partido por un espacio tras el prefijo: «10.1234/ abc»
@@ -352,6 +409,11 @@ def analizar(raw):
             continue
         url = u
         break
+    url_alt = ""
+    for con, sin in alternativas or ():
+        if url and con in url:
+            url_alt = url.replace(con, sin)
+            break
     sin_enlaces = re.sub(r"\b10\.\d{4,9}/\S+", " ", RE_URL.sub(" ", raw))
     m = RE_ANIO_PAR.search(sin_enlaces) or RE_ANIO.search(sin_enlaces)
     anio = m.group(1) if m else ""
@@ -359,6 +421,7 @@ def analizar(raw):
         "raw": raw,
         "doi": doi,
         "url": url,
+        "url_alt": url_alt,
         "anio": anio,
         "autor": _primer_apellido(raw),
         "titulo": _titulo_probable(raw),
@@ -459,18 +522,19 @@ def _desde_campos(autores, anio, titulo, fuente, doi, url):
 # ─────────────────────────────────────────────
 
 def extraer(texto=None, datos=None, nombre=""):
-    """Devuelve {'referencias': [...], 'origen': str, 'aviso': str}."""
+    """Devuelve {'referencias': [...], 'origen': str, 'aviso': str, 'paginas': str}."""
     nombre = (nombre or "").lower()
     aviso = ""
     if datos is not None:
         if datos[:5] == b"%PDF-" or nombre.endswith(".pdf"):
-            completo = texto_de_pdf(datos)
+            completo, leidas, total = texto_de_pdf(datos)
             seccion, hallada = seccion_referencias(completo)
             if not hallada:
                 aviso = ("No se encontró un encabezado de «Referencias» o «Bibliografía» en el PDF. "
                          "Se analizó el documento completo, revisá la lista con atención.")
-            return {"referencias": [analizar(r) for r in separar_referencias(seccion, de_pdf=True)],
-                    "origen": "pdf", "aviso": aviso}
+            return {"referencias": [analizar(r, alt) for r, alt in separar_referencias(seccion, de_pdf=True)],
+                    "origen": "pdf", "aviso": aviso,
+                    "paginas": f"{leidas} de {total}"}
         try:
             texto = datos.decode("utf-8-sig")
         except UnicodeDecodeError:
@@ -481,5 +545,5 @@ def extraer(texto=None, datos=None, nombre=""):
     if nombre.endswith((".bib", ".bibtex")) or re.search(r"^\s*@\w+\s*\{", texto, re.M):
         return {"referencias": parse_bibtex(texto), "origen": "bibtex", "aviso": ""}
     seccion, _ = seccion_referencias(texto)
-    return {"referencias": [analizar(r) for r in separar_referencias(seccion)],
+    return {"referencias": [analizar(r, alt) for r, alt in separar_referencias(seccion)],
             "origen": "texto", "aviso": ""}

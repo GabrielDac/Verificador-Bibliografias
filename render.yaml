@@ -2,7 +2,7 @@
 # Si creás el servicio a mano, usá estos mismos comandos.
 services:
   - type: web
-    name: verificador-bibliografias
+    name: verificador-bibliografico
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt

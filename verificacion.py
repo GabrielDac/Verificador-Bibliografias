@@ -1,4 +1,4 @@
-# Verificador de Bibliografías — © 2026 Gabriel Da Costa Porto Luzardo — GPL-3.0
+# Verificador Bibliográfico — © 2026 Gabriel Da Costa Porto Luzardo — GPL-3.0
 """Verificación de una referencia.
 
 Orden de trabajo:
@@ -29,16 +29,26 @@ CONTACT_EMAIL = os.environ.get("CONTACT_EMAIL", "").strip()
 NCBI_API_KEY = os.environ.get("NCBI_API_KEY", "").strip()
 S2_API_KEY = os.environ.get("S2_API_KEY", "").strip()
 
-UA = "VerificadorBibliografias/1.0 (herramienta educativa de software libre" + \
+UA = "VerificadorBibliografico/2.0 (herramienta educativa de software libre" + \
      (f"; mailto:{CONTACT_EMAIL}" if CONTACT_EMAIL else "") + ")"
 UA_NAVEGADOR = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/126.0 Safari/537.36 VerificadorBibliografias/1.0")
+                "Chrome/126.0 Safari/537.36 VerificadorBibliografico/2.0")
 
 T_API = 9          # segundos por consulta a una base
 T_PAGINA = 10      # segundos para abrir la página citada
 MAX_PAGINA = 400_000
 
-FUENTES = ["Crossref", "OpenAlex", "Semantic Scholar", "PubMed", "DOAJ", "Open Library"]
+# Semantic Scholar solo se consulta con clave: sin ella comparte un cupo
+# público que casi nunca responde desde un servidor compartido.
+FUENTES = ["Crossref", "OpenAlex", "PubMed", "DOAJ", "OpenAIRE", "Open Library"] + \
+          (["Semantic Scholar"] if S2_API_KEY else [])
+
+# Ponencias, tesis, informes y otros documentos que las bases cubren poco
+RE_LITERATURA_GRIS = re.compile(
+    r"\b(presentad[oa] en|ponencia|jornadas?|congreso|simposio|encuentro|seminario|coloquio|"
+    r"actas|memorias? del|tesis|tesina|trabajo final|monograf[ií]a de grado|informe|documento de trabajo|"
+    r"conference|proceedings|symposium|workshop|thesis|dissertation|report|working paper|"
+    r"\[en l[ií]nea\]|recuperado de|disponible en)\b", re.I)
 
 
 # ─────────────────────────────────────────────
@@ -489,11 +499,46 @@ def buscar_openlibrary(ref):
     return "ok", out
 
 
+def buscar_openaire(ref):
+    """OpenAIRE Graph: repositorios institucionales, ponencias y tesis
+    (incluida la red latinoamericana). Sin clave."""
+    q = _consulta(ref)
+    if not q:
+        return "ok", []
+    url = ("https://api.openaire.eu/graph/v1/researchProducts?" +
+           urllib.parse.urlencode({"mainTitle": q, "pageSize": "5"}))
+    estado, d = http_json(url)
+    if estado != 200 or d is None:
+        return "sin_respuesta", []
+    out = []
+    for r in d.get("results") or []:
+        personas = []
+        for a in r.get("authors") or []:
+            n = (a.get("fullName") or " ".join(x for x in (a.get("name"), a.get("surname")) if x) or "").strip()
+            if n:
+                personas.append((a.get("surname") or n, n))
+        doi = next((p.get("value", "") for p in r.get("pids") or [] if (p.get("scheme") or "").lower() == "doi"), "")
+        enlace = ""
+        for inst in r.get("instances") or []:
+            for u in inst.get("urls") or []:
+                enlace = enlace or u
+        if not enlace and r.get("id"):
+            enlace = "https://explore.openaire.eu/search/result?id=" + urllib.parse.quote(r["id"], safe=":")
+        fuentes_r = [x for x in r.get("sources") or [] if x and x.lower() not in ("crossref", "datacite", "unpaywall")]
+        fuente = (max(fuentes_r, key=len) if fuentes_r else "") or r.get("publisher") or ""
+        out.append(_registro("OpenAIRE", r.get("mainTitle") or "", personas,
+                             [(r.get("publicationDate") or "")[:4]], fuente[:120], doi, url=enlace,
+                             nombres_completos=True))
+    return "ok", out
+
+
 BUSCADORES = {
-    "Crossref": buscar_crossref, "OpenAlex": buscar_openalex, "Semantic Scholar": buscar_semantic,
-    "PubMed": buscar_pubmed, "DOAJ": buscar_doaj, "Open Library": buscar_openlibrary,
+    "Crossref": buscar_crossref, "OpenAlex": buscar_openalex, "PubMed": buscar_pubmed,
+    "DOAJ": buscar_doaj, "OpenAIRE": buscar_openaire, "Open Library": buscar_openlibrary,
 }
-PRIORIDAD = {n: i for i, n in enumerate(["Crossref", "DataCite", "OpenAlex", "PubMed", "DOAJ",
+if S2_API_KEY:
+    BUSCADORES["Semantic Scholar"] = buscar_semantic
+PRIORIDAD = {n: i for i, n in enumerate(["Crossref", "DataCite", "OpenAlex", "PubMed", "DOAJ", "OpenAIRE",
                                          "Semantic Scholar", "Open Library", "Página citada"])}
 
 
@@ -593,6 +638,14 @@ def verificar(ref):
     if url and not confirmada and not parcial_enlace:
         pag = abrir_pagina(url)
         e_url = {"tipo": "url", "valor": url, "url": url}
+        alt = ref.get("url_alt") or ""
+        if pag["estado"] != "viva" and alt and alt != url:
+            pag_alt = abrir_pagina(alt)
+            if pag_alt["estado"] == "viva":
+                pag = pag_alt
+                e_url.update(valor=alt, url=alt)
+                notas.append("El enlace citado tenía un guion de corte de línea dentro de la dirección. "
+                             "Sin ese guion, la página funciona.")
         if pag["estado"] == "viva":
             sims = [(similitud_titulo(t, ref), t) for t in titulos_de_pagina(pag.get("texto", ""))]
             sim, tit = max(sims, default=(0, ""))
@@ -674,6 +727,12 @@ def verificar(ref):
             estado, resumen = "observaciones", "El enlace citado funciona, pero no se pudo confirmar el contenido de forma automática."
         elif sin_resp >= 3 or estados.get("Crossref") == estados.get("OpenAlex") == "sin_respuesta":
             estado, resumen = "sin_comprobar", "Varias bases no respondieron. Volvé a intentarlo en unos minutos."
+        elif "caido" in (e_estado, seg) and RE_LITERATURA_GRIS.search(ref.get("raw", "")):
+            estado = "observaciones"
+            resumen = ("El enlace citado no funciona y el documento no figura en las bases, "
+                       "que cubren poco ponencias, tesis e informes.")
+            notas.append("Puede ser un documento real cuyo sitio cambió de dirección. "
+                         "Buscalo por título en el sitio de la institución o en Google Académico.")
         else:
             estado = "no_encontrada"
             resumen = "No se encontró en las bases consultadas."
@@ -697,26 +756,37 @@ def verificar(ref):
 # ─────────────────────────────────────────────
 
 def salud():
-    """Comprueba que cada base devuelva de verdad un registro conocido."""
+    """Comprueba que cada base devuelva de verdad un registro conocido.
+    Devuelve una lista ordenada de {nombre, estado, ms}."""
+    import time
     prueba = {"raw": "LeCun, Y., Bengio, Y., & Hinton, G. (2015). Deep learning. Nature, 521(7553), 436–444.",
               "titulo": "Deep learning", "autor": "LeCun", "anio": "2015"}
     libro = {"raw": "Borges, J. L. (1944). Ficciones. Sur.", "titulo": "Ficciones", "autor": "Borges", "anio": "1944"}
-    out = {}
+    repo = {"raw": "Carvidón, E., Paz Torres, M. y Rodríguez-Fleitas, M. (2021). Red de Bibliotecas Parlamentarias "
+                   "de América Latina y el Caribe. Informatio, 26(2).",
+            "titulo": "Red de Bibliotecas Parlamentarias de América Latina y el Caribe", "autor": "Carvidón", "anio": "2021"}
 
-    def una(nombre, f, r):
-        estado, cands = f(r)
-        return nombre, "sin respuesta" if estado != "ok" else ("ok" if cands else "responde sin resultados")
+    def busqueda(f, r):
+        def _():
+            estado, cands = f(r)
+            return "sin_respuesta" if estado != "ok" else ("ok" if cands else "vacia")
+        return _
 
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        tareas = [ex.submit(una, n, f, libro if n == "Open Library" else prueba) for n, f in BUSCADORES.items()]
-        tareas.append(ex.submit(lambda: ("Crossref (DOI)", "ok" if crossref_doi("10.1038/nature14539")[0] == "ok" else "sin respuesta")))
-        tareas.append(ex.submit(lambda: ("DataCite (DOI)", "ok" if datacite_doi("10.5281/zenodo.3233118")[0] in ("ok", "no") else "sin respuesta")))
-        tareas.append(ex.submit(lambda: ("Registro de DOI", "ok" if doi_existe("10.1038/nature14539") else "sin respuesta")))
-        tareas.append(ex.submit(lambda: ("Internet Archive", "ok" if http_json("https://archive.org/wayback/available?url=example.com", timeout=7)[0] == 200 else "sin respuesta")))
-        for t in tareas:
-            try:
-                n, v = t.result()
-            except Exception:
-                continue
-            out[n] = v
-    return out
+    pruebas = [(n, busqueda(f, libro if n == "Open Library" else repo if n == "OpenAIRE" else prueba))
+               for n, f in BUSCADORES.items()]
+    pruebas.append(("DataCite", lambda: "ok" if datacite_doi("10.5281/zenodo.3233118")[0] in ("ok", "no") else "sin_respuesta"))
+    pruebas.append(("Internet Archive", lambda: "ok" if http_json(
+        "https://archive.org/wayback/available?url=example.com", timeout=7)[0] == 200 else "sin_respuesta"))
+
+    def medir(nombre, f):
+        t0 = time.monotonic()
+        try:
+            estado = f()
+        except Exception:
+            estado = "sin_respuesta"
+        return {"nombre": nombre, "estado": estado, "ms": int((time.monotonic() - t0) * 1000)}
+
+    orden = list(BUSCADORES) + ["DataCite", "Internet Archive"]
+    with ThreadPoolExecutor(max_workers=len(pruebas)) as ex:
+        res = list(ex.map(lambda p: medir(*p), pruebas))
+    return sorted(res, key=lambda r: orden.index(r["nombre"]))

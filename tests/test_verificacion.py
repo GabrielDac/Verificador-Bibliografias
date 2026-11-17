@@ -45,8 +45,14 @@ def falso_http_json(url, timeout=9, headers=None):
     if "api.openalex.org/works?" in u:
         return 200, {"results": [OA_GP] if "percepci" in u else []}
     if "semanticscholar" in u: return 429, None
-    if "esearch" in u: return 200, {"esearchresult": {"idlist": []}}
+    if "esearch.fcgi" in u: return 200, {"esearchresult": {"idlist": []}}
     if "doaj.org" in u: return 200, {"results": []}
+    if "openaire.eu" in u:
+        if "Camareta" in u:
+            return 200, {"results": [{"mainTitle": "Proyecto de conservación, digitalización y difusión de la Colección Camareta de la Biblioteca del Poder Legislativo",
+                                      "authors": [{"fullName": "Carvidon, Evangelina", "surname": "Carvidon"}], "publicationDate": "2021-10-01",
+                                      "id": "od_1::abc", "pids": []}]}
+        return 200, {"results": []}
     if "openlibrary" in u:
         if "Ficciones" in u:
             return 200, {"docs": [{"key": "/works/OL1W", "title": "Ficciones", "author_name": ["Jorge Luis Borges"],
@@ -83,6 +89,8 @@ CASOS = [
  ("Enlace caído, no hallada", "Gómez, P. (2018). Un documento perdido de la web institucional. https://caida.example.org/x", "no_encontrada"),
  ("Libro en Open Library", "Borges, J. L. (1944). Ficciones. Sur.", "verificada"),
  ("Título corto sin autor coincidente", "Martínez, Q. (2020). Deep learning. Editorial Z.", "no_encontrada"),
+ ("Ponencia con enlace caído, hallada en OpenAIRE", "Carvidon, E. & Pivel, D. (2021). Proyecto de conservación, digitalización y difusión de la Colección Camareta de la Biblioteca del Poder Legislativo. Presentado en las III Jornadas Nacionales, Montevideo. https://caida.example.org/27", "verificada"),
+ ("Ponencia con enlace caído, no hallada", "Gómez, P. (2019). Experiencias de preservación digital en bibliotecas escolares. Presentado en las II Jornadas de Preservación, Montevideo. https://caida.example.org/9", "observaciones"),
  ("Retractada", "Wakefield AJ, et al. Ileal-lymphoid-nodular hyperplasia, non-specific colitis, and pervasive developmental disorder in children. Lancet. 1998;351:637-41. doi:10.1016/S0140-6736(97)11096-0", "retractada"),
 ]
 
@@ -98,7 +106,7 @@ def test_casos():
     assert not fallos
 
 def test_bases_caidas():
-    caidas.update({"crossref", "openalex", "doaj"})
+    caidas.update({"crossref", "openalex", "doaj", "openaire"})
     r = v.verificar(analizar("Smith AB, Jones CD. Imaginary outcomes of a study that does not exist. J Nonexistent Med. 2019;4(2):11-9."))
     caidas.clear()
     print("Bases caídas →", r["estado"], [f["nombre"] + ":" + f["estado"] for f in r["fuentes"]])

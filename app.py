@@ -1,10 +1,11 @@
-# Verificador de Bibliografías — © 2026 Gabriel Da Costa Porto Luzardo — GPL-3.0
+# Verificador Bibliográfico — © 2026 Gabriel Da Costa Porto Luzardo — GPL-3.0
 """Servidor Flask.
 
   /                  Página única
   /api/extraer       PDF, BibTeX, RIS o texto pegado → lista de referencias
   /api/verificar     Una referencia → dictamen (enlace primero, luego bases)
   /api/fuentes       Estado de las bases consultadas
+  /api/ping          Respuesta mínima (mantiene despierto el servidor mientras se usa)
 """
 
 import os
@@ -72,6 +73,10 @@ def api_verificar():
                "titulo": str(cuerpo.get("titulo") or "")[:500]}
     else:
         ref = extraccion.analizar(raw)
+        # Dirección alternativa sin guion de corte, detectada al separar
+        alt = str(cuerpo.get("url_alt") or "")[:600]
+        if alt and ref.get("url") == cuerpo.get("url"):
+            ref["url_alt"] = alt
     try:
         res = verificacion.verificar(ref)
     except Exception:
@@ -82,7 +87,12 @@ def api_verificar():
 
 @app.get("/api/fuentes")
 def api_fuentes():
-    return jsonify(verificacion.salud())
+    return jsonify(fuentes=verificacion.salud())
+
+
+@app.get("/api/ping")
+def api_ping():
+    return jsonify(ok=True)
 
 
 if __name__ == "__main__":

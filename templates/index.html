@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Verificador de Bibliografías — ¿Existen de verdad estas referencias?</title>
-<meta name="description" content="Arrastrá un PDF o pegá una lista de referencias. Se comprueba primero el enlace citado y después se busca cada trabajo por título y autor en Crossref, OpenAlex, Semantic Scholar, PubMed, DOAJ y Open Library.">
+<title>Verificador Bibliográfico — ¿Existen de verdad estas referencias?</title>
+<meta name="description" content="Arrastrá un PDF o pegá una lista de referencias. Se comprueba primero el enlace citado y después se busca cada trabajo por título y autor en {{ fuentes|join(', ') }}.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='22' fill='%230D5E66'/%3E%3Cpath d='M26 52l16 16 32-36' fill='none' stroke='white' stroke-width='11' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -15,7 +15,7 @@
 
 <header class="cabecera">
   <div class="marca">
-    <h1>Verificador de Bibliografías</h1>
+    <h1>Verificador Bibliográfico</h1>
     <p class="lema">Comprobá si las referencias de un trabajo existen de verdad.</p>
   </div>
   <div class="controles-cabecera">
@@ -24,6 +24,20 @@
 </header>
 
 <main class="principal">
+
+  <!-- ───────── Estado de las bases ───────── -->
+  <section class="panel panel-ancho panel-estado" id="panel-estado" aria-labelledby="t-estado">
+    <div class="encabezado-estado">
+      <h2 id="t-estado">Estado de las bases</h2>
+      <p id="estado-servidor" class="ayuda" role="status" aria-live="polite">Conectando con el servidor…</p>
+      <button id="btn-fuentes" class="boton-sutil boton-chico" type="button">Comprobar de nuevo</button>
+    </div>
+    <ul id="lista-fuentes" class="lista-fuentes" aria-label="Bases consultadas">
+      {% for f in fuentes + ['DataCite', 'Internet Archive'] %}
+      <li class="fuente comprobando" data-fuente="{{ f }}"><span class="punto" aria-hidden="true"></span>{{ f }}<span class="visualmente-oculto"> comprobando</span></li>
+      {% endfor %}
+    </ul>
+  </section>
 
   <!-- ───────── 1 · Cargar ───────── -->
   <section class="panel panel-ancho" id="panel-cargar" aria-labelledby="t-cargar">
@@ -38,17 +52,19 @@
           <span class="zona-tipos">PDF · BibTeX (.bib) · RIS (.ris) · texto (.txt)</span>
           <input id="archivo" type="file" accept=".pdf,.bib,.bibtex,.ris,.txt,application/pdf" hidden>
         </label>
-        <p class="ayuda">En un PDF se busca sola la sección «Referencias» o «Bibliografía». El archivo se analiza y no se guarda.</p>
+        <p class="ayuda">En un PDF se busca sola la sección «Referencias» o «Bibliografía», empezando por el final. El archivo se analiza y no se guarda.</p>
       </div>
 
       <div>
         <label for="texto" class="etiqueta">O pegá las referencias</label>
         <textarea id="texto" rows="8" spellcheck="false" aria-describedby="ayuda-texto"
           placeholder="García, M. (2021). Título del artículo. Nombre de la Revista, 12(3), 45–67. https://doi.org/…"></textarea>
-        <p class="ayuda" id="ayuda-texto">Sirve cualquier norma (APA, ISO 690, Vancouver, Chicago). Una referencia por párrafo o por línea.</p>
+        <p class="ayuda" id="ayuda-texto">Sirve cualquier norma (APA, ISO 690, Vancouver, Chicago). Lo más seguro es dejar un renglón en blanco entre referencia y referencia.</p>
         <div class="acciones">
           <button id="btn-detectar" class="boton-primario" type="button">Detectar referencias</button>
-          <button id="btn-ejemplo" class="boton-sutil" type="button">Cargar un ejemplo</button>
+          <button id="btn-borrar" class="boton-sutil" type="button" title="Vaciar el cuadro de texto">Borrar</button>
+          <button id="btn-una" class="boton-sutil" type="button" title="Escribir o pegar cada referencia en su propia casilla">Cargar de a una</button>
+          <button id="btn-ejemplo" class="boton-sutil" type="button">Ejemplo</button>
         </div>
       </div>
     </div>
@@ -61,7 +77,7 @@
       <h2 id="t-revisar">2 · Revisar la lista</h2>
       <p class="ayuda" id="cuenta-revisar"></p>
     </div>
-    <p class="ayuda">Cada casilla debe contener una sola referencia completa. Podés corregir el texto, unir una referencia que quedó partida con la anterior o quitar lo que no corresponda.</p>
+    <p class="ayuda">Cada casilla debe contener una sola referencia completa. Podés corregir el texto, unir una referencia que quedó partida con la anterior, quitar lo que no corresponda o agregar referencias nuevas.</p>
     <div id="aviso-extraccion" class="avisos" hidden></div>
     <ol id="lista-revisar" class="lista-revisar"></ol>
     <div class="acciones">
@@ -75,34 +91,39 @@
   <section class="panel panel-ancho" id="panel-resultados" aria-labelledby="t-resultados" hidden>
     <div class="encabezado-biblio">
       <h2 id="t-resultados">3 · Resultados</h2>
-      <p class="ayuda" id="progreso-texto" role="status" aria-live="polite"></p>
     </div>
-    <div class="barra" aria-hidden="true"><div id="barra-avance"></div></div>
+
+    <div class="tablero">
+      <div class="avance">
+        <p id="progreso-texto" class="progreso-texto" role="status" aria-live="polite"></p>
+        <div class="barra" aria-hidden="true"><div id="barra-avance"></div></div>
+        <p id="progreso-tiempo" class="ayuda"></p>
+      </div>
+      <div class="acciones-tablero">
+        <button id="btn-detener" class="boton-sutil" type="button" hidden>Detener</button>
+        <label class="exportar"><span class="visualmente-oculto">Formato del informe</span>
+          <select id="fmt-exportar">
+            <option value="html">HTML — imprimir o guardar como PDF</option>
+            <option value="csv">CSV — planilla de cálculo</option>
+            <option value="txt">Texto plano</option>
+          </select>
+        </label>
+        <button id="btn-exportar" class="boton-secundario" type="button">Exportar</button>
+      </div>
+    </div>
 
     <div id="filtros" class="chips" role="group" aria-label="Filtrar resultados por estado"></div>
 
     <ol id="lista-resultados" class="lista-resultados"></ol>
 
-    <div class="acciones">
-      <label class="exportar">Exportar el informe
-        <select id="fmt-exportar">
-          <option value="html">HTML — para imprimir o guardar como PDF</option>
-          <option value="csv">CSV — planilla de cálculo</option>
-          <option value="txt">Texto plano</option>
-        </select>
-      </label>
-      <button id="btn-exportar" class="boton-secundario" type="button">Descargar</button>
-      <button id="btn-detener" class="boton-sutil" type="button" hidden>Detener</button>
-    </div>
-
     <details class="avanzada">
       <summary>Cómo leer los resultados</summary>
       <ul class="leyenda">
         <li><span class="sello sello-verificada">Verificada</span> El enlace citado lleva al trabajo, o el trabajo se encontró por título y autor en al menos una base.</li>
-        <li><span class="sello sello-observaciones">Con observaciones</span> El trabajo aparece, pero algún dato citado no coincide (autores, año, DOI), o el enlace funciona y no se pudo confirmar su contenido.</li>
-        <li><span class="sello sello-no_encontrada">No encontrada</span> No aparece en ninguna base. Puede ser una referencia inventada, pero también un libro, una tesis o un documento que las bases no cubren.</li>
+        <li><span class="sello sello-observaciones">Con observaciones</span> El trabajo aparece, pero algún dato citado no coincide (autores, año, DOI), o el enlace no permitió confirmarlo. También se usa para ponencias, tesis e informes con el enlace caído, que las bases cubren poco.</li>
+        <li><span class="sello sello-no_encontrada">No encontrada</span> No aparece en ninguna base. Puede ser una referencia inventada, pero también un libro o un documento que las bases no cubren.</li>
         <li><span class="sello sello-retractada">Retractada</span> El trabajo existe y la revista lo retiró.</li>
-        <li><span class="sello sello-sin_comprobar">Sin comprobar</span> Las bases no respondieron. Se puede reintentar.</li>
+        <li><span class="sello sello-sin_comprobar">Sin comprobar</span> El servidor o las bases no respondieron, incluso después de reintentar. Se puede volver a intentar.</li>
       </ul>
       <p class="ayuda">El resultado es una ayuda para la revisión y no un dictamen definitivo. Ante la duda, consultá la fuente original.</p>
     </details>
@@ -111,10 +132,9 @@
 </main>
 
 <footer class="pie">
-  <p><b>Verificador de Bibliografías</b> · © 2026 <b>Gabriel Da Costa Porto Luzardo</b> · <a href="mailto:gabomvd@gmail.com">gabomvd@gmail.com</a> · Software libre bajo licencia
+  <p><b>Verificador Bibliográfico</b> · © 2026 <b>Gabriel Da Costa Porto Luzardo</b> · <a href="mailto:gabomvd@gmail.com">gabomvd@gmail.com</a> · Software libre bajo licencia
     <a href="https://www.gnu.org/licenses/gpl-3.0.es.html" target="_blank" rel="noopener">GNU GPL-3.0</a> · Powered by Anthrop\c</p>
-  <details style="margin:12px auto;max-width:900px;text-align:left"><summary style="cursor:pointer;text-align:center">ℹ️ Acerca de esta herramienta</summary><p style="margin:10px 0 4px;line-height:1.6">Verificador de Bibliografías comprueba si las referencias de un trabajo corresponden a publicaciones reales. Acepta un PDF, un archivo BibTeX o RIS, o una lista pegada, y separa las referencias mediante reglas, sin inteligencia artificial. Para cada una comprueba primero el enlace citado (DOI o dirección web) y, si eso no alcanza, busca el trabajo por título y autor en Crossref, OpenAlex, Semantic Scholar, PubMed, DOAJ y Open Library, con DataCite e Internet Archive como apoyo. Los archivos se analizan en el momento y no se guardan. Backend en Python (Flask). Software libre bajo licencia GNU GPL-3.0.</p>
-  <p style="margin:6px 0"><button id="btn-fuentes" class="boton-sutil" type="button">Comprobar el estado de las bases</button> <span id="estado-fuentes" role="status" aria-live="polite"></span></p></details>
+  <details style="margin:12px auto;max-width:900px;text-align:left"><summary style="cursor:pointer;text-align:center">ℹ️ Acerca de esta herramienta</summary><p style="margin:10px 0 4px;line-height:1.6">Verificador Bibliográfico comprueba si las referencias de un trabajo corresponden a publicaciones reales. Acepta un PDF, un archivo BibTeX o RIS, o una lista pegada, y separa las referencias mediante reglas, sin inteligencia artificial. Para cada una comprueba primero el enlace citado (DOI o dirección web) y, si eso no alcanza, busca el trabajo por título y autor en {{ fuentes|join(', ') }}, con DataCite e Internet Archive como apoyo. Los archivos se analizan en el momento y no se guardan. Backend en Python (Flask). Software libre bajo licencia GNU GPL-3.0.</p></details>
   <p>Otras herramientas: <a href="https://biblioteca-virtual-itfj.onrender.com" target="_blank" rel="noopener">Biblioteca Virtual</a> · <a href="https://clasificacion-total.onrender.com" target="_blank" rel="noopener">Clasificación Documental</a> · <a href="https://referencias-bibliograficas.onrender.com" target="_blank" rel="noopener">Referencias Bibliográficas</a> <span style="opacity:.65">(los servidores de Render pueden demorar unos 30 segundos en la primera carga)</span></p>
 </footer>
 

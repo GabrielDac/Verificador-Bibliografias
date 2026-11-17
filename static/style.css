@@ -1,4 +1,4 @@
-/* Verificador de Bibliografías — © 2026 Gabriel Da Costa Porto Luzardo — GPL-3.0 */
+/* Verificador Bibliográfico — © 2026 Gabriel Da Costa Porto Luzardo — GPL-3.0 */
 
 :root {
   --fondo: #F4F5F2;
@@ -496,3 +496,44 @@ button { font: inherit; cursor: pointer; border-radius: 8px; }
 
 .exportar select { max-width: 100%; }
 [hidden] { display: none !important; }
+
+/* ══════════ Versión 2 ══════════ */
+
+/* ── Estado de las bases ── */
+.panel-estado { padding-top: .9rem; padding-bottom: 1rem; }
+.encabezado-estado { display: flex; flex-wrap: wrap; gap: .3rem 1rem; align-items: baseline; margin-bottom: .6rem; }
+.encabezado-estado h2 { margin: 0; font-size: 1rem; }
+.encabezado-estado .ayuda { margin: 0; flex: 1; min-width: 14rem; }
+.boton-chico { padding: .25rem .7rem; font-size: .85rem; }
+.lista-fuentes { list-style: none; display: flex; flex-wrap: wrap; gap: .4rem; margin: 0; padding: 0; }
+.fuente {
+  display: inline-flex; align-items: center; gap: .4rem; font-size: .85rem;
+  border: 1px solid var(--borde); border-radius: 999px; padding: .2rem .7rem; background: var(--fondo);
+}
+.fuente .punto { width: .55rem; height: .55rem; border-radius: 50%; background: var(--borde); flex: none; }
+.fuente.ok .punto { background: var(--ok); }
+.fuente.vacia .punto { background: var(--acento-aviso); }
+.fuente.sin_respuesta { color: var(--error); border-color: var(--error); }
+.fuente.sin_respuesta .punto { background: var(--error); }
+.fuente.comprobando .punto { background: var(--tinta-suave); animation: latido 1.1s ease-in-out infinite; }
+@keyframes latido { 50% { opacity: .25; } }
+
+/* ── Tablero de resultados ── */
+.tablero {
+  display: flex; flex-wrap: wrap; gap: .8rem 1.4rem; align-items: center; justify-content: space-between;
+  background: var(--fondo); border: 1px solid var(--borde); border-radius: 10px; padding: .8rem 1rem; margin-bottom: .9rem;
+}
+.avance { flex: 1 1 22rem; }
+.progreso-texto { margin: 0 0 .35rem; font-weight: 600; }
+.avance .barra { margin: 0 0 .3rem; background: var(--superficie); }
+.avance .ayuda { margin: 0; }
+.acciones-tablero { display: flex; flex-wrap: wrap; gap: .45rem; align-items: center; }
+.acciones-tablero .exportar select { width: auto; max-width: 17rem; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+
+.chip-verificada b { color: var(--ok); }
+.chip-observaciones b { color: var(--acento-aviso); }
+.chip-no_encontrada b, .chip-retractada b { color: var(--error); }
+.chip[aria-pressed="true"] b { color: inherit; }
+
+.lista-revisar textarea::placeholder { font-family: var(--sans); }
